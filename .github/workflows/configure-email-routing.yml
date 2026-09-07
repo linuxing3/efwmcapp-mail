@@ -1,0 +1,32 @@
+name: Configure Cloud Mail catch-all routing
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Route all efwmcapp.com email to Cloud Mail
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DOMAIN: efwmcapp.com
+          WORKER: efwmcapp-mail
+        run: |
+          set -euo pipefail
+          api=https://api.cloudflare.com/client/v4
+          auth=(-H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json')
+          zone_id=$(curl --fail-with-body --silent --show-error "${auth[@]}" \
+            "$api/zones?name=$DOMAIN&status=active" | jq -er '.result[0].id')
+          payload=$(jq -n --arg worker "$WORKER" '{
+            enabled: true,
+            name: "Route all efwmcapp.com email to Cloud Mail",
+            matchers: [{type: "all"}],
+            actions: [{type: "worker", value: [$worker]}]
+          }')
+          curl --fail-with-body --silent --show-error -X PUT "${auth[@]}" \
+            "$api/zones/$zone_id/email/routing/rules/catch_all" \
+            --data "$payload" | jq -e '{success, result: {enabled, name, matchers, actions}}'
